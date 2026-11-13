@@ -1,83 +1,195 @@
-# Rota Fácil — MVP
+# Rota Fácil
 
-Monorepo do MVP com API NestJS, interface Vue 3 + Quasar + TypeScript, MapLibre GL JS, PostgreSQL/PostGIS e Valhalla.
+Aplicação web para criar mapas personalizados, organizar pontos de visita e visualizar rotas de carro na sequência escolhida pelo usuário. Permite acompanhar visitas e compartilhar mapas com responsáveis, mantendo o controle das alterações com o criador.
 
-## Etapa 1: ambiente e prova cartográfica
+O projeto está em evolução a partir de um MVP para uso online. A ordem dos pontos é manual: o sistema calcula o trajeto entre eles, mas ainda não otimiza a sequência de visitas.
 
-1. Copie `.env.example` para `.env` e ajuste a senha local do banco.
-2. Execute `docker compose up --build` na raiz.
-3. Aguarde o primeiro preparo do Valhalla. O serviço baixa um recorte OSM da região Nordeste do Brasil e gera o grafo de roteamento; isso pode levar vários minutos e usar bastante memória e disco. Os arquivos ficam no volume `valhalla_data` e são reutilizados nas próximas inicializações.
-4. Abra <http://localhost:9000> e use **Calcular rota de teste**.
-5. Verifique a conexão com PostGIS em <http://localhost:3000/health>.
+## Funcionalidades
 
-O PostgreSQL fica publicado localmente em `localhost:5433` para evitar conflito com uma instalação local que já use a porta 5432; os contêineres usam a porta padrão 5432 na rede interna.
+- Cadastro com nome, e-mail, CPF e senha; login e logout com sessão em cookie `HttpOnly`.
+- Criação, listagem, edição e exclusão de mapas com nome e descrição.
+- Inclusão de pontos por clique ou busca por endereço, com confirmação da posição antes de salvar.
+- Nomes opcionais para os pontos, seleção, remoção e reordenação por arrastar e soltar ou pelos botões da lista.
+- Cálculo e persistência da rota, com recálculo após inclusão, remoção ou reordenação de pontos.
+- Marcação de pontos como visitados, sem alterar a sequência ou recalcular a rota.
+- Localização atual do dispositivo, com ações para centralizar e interromper o acompanhamento.
+- Compartilhamento com responsáveis pelo e-mail de uma conta cadastrada, com concessão e revogação de acesso pelo criador.
 
-Para acompanhar a inicialização e consultar os healthchecks, use `docker compose ps` e `docker compose logs -f api web valhalla`. A API fica saudável quando PostgreSQL/PostGIS respondem; isso não significa que a preparação dos tiles do Valhalla terminou. Consulte [docs/implantacao.md](docs/implantacao.md) para operação local, variáveis e preparação antes de publicar.
+### Permissões de compartilhamento
 
-## Etapa 2: autenticação
+| Ação | Criador | Responsável autorizado |
+| --- | --- | --- |
+| Visualizar mapa, pontos e rota | Sim | Sim |
+| Renomear pontos e marcar/desmarcar visitas | Sim | Sim |
+| Adicionar, remover e reordenar pontos | Sim | Não |
+| Editar ou excluir o mapa | Sim | Não |
+| Conceder e revogar acessos | Sim | Não |
 
-- Abra <http://localhost:9000/register> para cadastrar uma conta e <http://localhost:9000/login> para entrar.
-- O perfil protegido fica em `/workspace`; a prova de mapa da Etapa 1 fica em `/workspace/map-preview`.
-- A API oferece `POST /auth/register`, `POST /auth/login`, `POST /auth/logout` e `GET /auth/me`. A rota `POST /route` também exige uma sessão.
-- Senhas exigem pelo menos 12 caracteres; o limite de hashing é 72 bytes. A API armazena somente o hash bcrypt.
-- O cadastro pede nome completo e CPF formatado. A API valida os dígitos verificadores do CPF e persiste somente um HMAC-SHA-256 do número; CPF não aparece nas respostas de autenticação. Configure um `CPF_HASH_SECRET` aleatório e mantenha-o estável, pois uma troca impede reconhecer os CPFs já registrados.
-- A senha de verificação só é usada no formulário: precisa coincidir com a senha antes do envio e não é enviada nem armazenada.
-- A sessão usa token aleatório em cookie `HttpOnly`, `SameSite=Lax`, com prazo de sete dias. Apenas o SHA-256 do token é persistido. Em produção o cookie recebe `Secure` e o prefixo `__Host-`; sirva a aplicação por HTTPS e configure `WEB_ORIGIN` para a origem real da interface.
-- Cadastro e login têm limite de cinco tentativas por minuto por IP; o limite atual fica em memória e é adequado apenas para uma instância local. Produção com várias réplicas precisa de armazenamento compartilhado para os limites.
-- O MapLibre foi atualizado para a linha 6.16, com o worker empacotado pelo Vite para ESM.
-- A auditoria da API ainda reporta avisos altos na cadeia de configuração da versão Prisma 6 usada pela CLI. A correção indicada pelo npm exige a migração de versão principal do Prisma, que também muda o formato de módulos e o adaptador do banco; essa migração deve ser concluída antes de produção.
+As restrições são verificadas pela API e refletidas na interface. Contas sem autorização não têm acesso ao mapa.
 
-## Etapa 3: gerenciamento de mapas
+## Tecnologias utilizadas
 
-- Após entrar, `/workspace` lista os mapas da conta e permite criar, editar, abrir e excluir mapas.
-- A tela `/workspace/maps/:id` apresenta os dados do mapa e o mapa interativo descrito na Etapa 4.
-- A API oferece `POST /maps`, `GET /maps`, `GET /maps/:id`, `PATCH /maps/:id` e `DELETE /maps/:id`. Todos exigem sessão e limitam consultas e alterações ao proprietário autenticado.
-- O modelo persiste nome e descrição opcional, com datas de criação e atualização. A exclusão do usuário remove seus mapas por chave estrangeira em cascata.
+| Camada | Tecnologias | Finalidade |
+| --- | --- | --- |
+| Interface | Vue 3, Quasar 2, TypeScript e Vue Router | Telas, componentes e navegação |
+| Build da interface | Vite 6 e vue-tsc | Desenvolvimento, verificação de tipos e build |
+| Mapa | MapLibre GL JS 6 | Renderização do mapa, marcadores e trajetos |
+| API | NestJS 11, TypeScript e Node.js 22 | Autenticação, permissões e regras de negócio |
+| Persistência | Prisma 6 e PostgreSQL 16 com PostGIS 3.5 | Modelos, migrações e armazenamento |
+| Roteirização | Valhalla | Cálculo de trajetos de carro com dados viários do OpenStreetMap |
+| Cartografia | OpenFreeMap e OpenStreetMap | Estilo e dados do mapa |
+| Busca de endereço | Geoapify Address Autocomplete | Sugestões de endereço convertidas em coordenadas |
+| Localização | Geolocation API do navegador | Acompanhamento temporário da posição do dispositivo |
+| Ambiente local | Docker e Docker Compose | Execução integrada dos serviços |
 
-## Etapa 4: mapa interativo e pontos
+A interface consulta a API, que acessa o banco, o Valhalla e o Geoapify. A cartografia é carregada pelo navegador. A chave do Geoapify permanece no backend.
 
-- Na tela de detalhes do mapa, use **Adicionar ponto** para ativar o modo de inclusão. Um clique no mapa grava latitude e longitude; cliques em modo de navegação não criam pontos.
-- A lista lateral mostra as coordenadas e a sequência de inclusão. Selecione um marcador ou item da lista e use o botão de exclusão para removê-lo; os pontos seguintes são renumerados.
-- Use o ícone de edição em um ponto para atribuir, alterar ou remover seu nome. O nome é opcional e aparece na lista e ao passar o cursor sobre o marcador; renomear não altera a rota.
-- A API oferece `GET /maps/:id/points`, `POST /maps/:id/points` e `DELETE /maps/:id/points/:pointId`. As coordenadas são validadas por faixa e os recursos seguem a propriedade do mapa.
-- `MapPoint` persiste apenas identificador, mapa relacionado, latitude, longitude, posição e datas de criação/atualização. Não são gravados endereços ou textos do local.
-- O modo de visualização e edição requer internet para carregar cartografia do OpenFreeMap; o cálculo da rota consulta o serviço Valhalla.
+## Estrutura do repositório
 
-## Etapa 5: ordenação manual e rotas
+```text
+apps/
+  api/                              # API NestJS, schema Prisma e migrações
+  web/                              # Interface Vue, Quasar e MapLibre
+infra/
+  postgres-init.sql                 # Inicialização da extensão PostGIS
+docs/
+  implantacao.md                    # Operação local e preparação para produção
+docker-compose.yml                  # Serviços e volumes de desenvolvimento
+.env.example                        # Modelo de configuração
+plano-execucao-mvp-mapas-rotas.md     # Etapas, critérios de aceite e revisões
+```
 
-- Reordene pontos arrastando-os na lista ou usando os botões de subir/descer. A API `PATCH /maps/:id/points/order` exige a lista completa dos IDs sem duplicatas; a posição é salva sem otimização automática.
-- O Valhalla é consultado automaticamente após inclusão, remoção e reordenação, sempre na sequência salva. A API `GET /maps/:id/route` retorna a geometria persistida como GeoJSON `LineString`.
-- A geometria e horário do cálculo ficam em `MapRoute`, relacionados ao mapa. Se houver menos de dois pontos, a rota é limpa; se o Valhalla falhar, a geometria anterior é removida e a mensagem do serviço fica disponível para a interface.
-- As rotas são protegidas pela mesma autorização de propriedade dos mapas. O endpoint de demonstração `POST /route` continua disponível para a prova cartográfica da Etapa 1.
+## Como executar
 
-## Evolução pós-MVP: pontos visitados
+### Pré-requisitos
 
-- O criador pode abrir **Responsáveis** no mapa, conceder acesso pelo e-mail de uma conta cadastrada e revogar esse acesso. Mapas compartilhados aparecem na área de trabalho do responsável, que pode visualizar o mapa e detalhes, renomear pontos e marcar ou desmarcar visitas. As demais ações de edição e a gestão de acessos ficam com o criador.
+- Docker com o plugin Docker Compose (comando `docker compose`).
+- Conexão à internet para baixar imagens, dependências e dados cartográficos e utilizar os serviços externos.
+- Memória e espaço em disco disponíveis para preparar o grafo de roteamento do Valhalla. O recorte padrão cobre todo o Nordeste do Brasil e pode exigir recursos consideráveis.
+- Uma chave do Geoapify para habilitar a busca por endereço. As demais funcionalidades não dependem dessa chave.
 
-- Selecione um ponto e use a ação **Marcar como visitado**. O marcador e o número na lista ficam cinza, e o estado pode ser desfeito.
-- A API oferece `PATCH /maps/:id/points/:pointId/visited` com `{ "visited": true|false }`. O banco guarda `visitedAt` opcional; alterar essa marcação não muda a sequência nem recalcula a rota.
-- A busca e inclusão por endereço está na Etapa 8 do [plano de execução](plano-execucao-mvp-mapas-rotas.md): digite o endereço, escolha uma sugestão, confira/ajuste o marcador no mapa e confirme a inclusão. Configure `GEOAPIFY_API_KEY` no `.env`; a chave permanece no backend. O texto de busca é enviado ao Geoapify para consulta, não é armazenado pelo Rota Fácil, e o ponto salvo contém apenas coordenadas e posição.
-- No mapa, **Minha localização** solicita permissão ao navegador e acompanha as atualizações do dispositivo enquanto estiver ativada. O marcador é temporário, não vira ponto salvo; use **Parar localização** para encerrar o acompanhamento. O navegador exige HTTPS, com exceção de `localhost` em desenvolvimento.
+Não é necessário instalar Node.js ou PostgreSQL na máquina para executar pelo Compose.
 
-Verificação de e-mail, recuperação de senha e administração de contas ainda não fazem parte desta etapa.
+### 1. Configurar o ambiente
 
-O CRUD da Etapa 3 permite gerenciar mapas, e as Etapas 4 e 5 adicionam pontos persistidos, reordenação e cálculo das rotas. A prova de rota da Etapa 1 permanece como demonstração fixa protegida por sessão.
+Na raiz do repositório, copie o modelo de configuração, caso ainda não tenha um `.env`:
 
-O recorte Geofabrik Nordeste contém Vitória da Conquista e municípios do entorno, além de uma área geográfica muito maior que a prova de conceito. Se os recursos locais forem limitados, ajuste `VALHALLA_TILE_URL` para um extrato menor antes de iniciar pela primeira vez.
+```bash
+cp .env.example .env
+```
 
-## Dados cartográficos e serviços
+Edite o `.env` conforme necessário:
 
-- **MapLibre GL JS** renderiza o mapa; não fornece os dados cartográficos.
-- A prova usa o estilo Liberty hospedado pelo OpenFreeMap. A URL pode ser configurada em `VITE_MAP_STYLE_URL`.
-- O estilo e as vias usam dados do OpenStreetMap. Exibir atribuição visível ao OpenStreetMap é obrigatório; os dados OSM são licenciados sob ODbL. Consulte os termos atuais do provedor de tiles antes de publicar o serviço ou depender dele em produção.
-- O roteador usa Valhalla e dados viários OSM, sem Google Maps. A imagem Docker scripted oficial prepara os tiles a partir do PBF definido em `VALHALLA_TILE_URL`.
-- A busca por endereço usa o Geoapify Address Autocomplete; sua chave é configurada em `GEOAPIFY_API_KEY` no `.env` e nunca deve ser publicada no frontend. A tela atribui a busca ao Geoapify.
-- O endpoint de saúde da API confirma conexão ao PostgreSQL e executa `PostGIS_Full_Version()`. O endpoint `POST /route` encaminha coordenadas ao Valhalla.
+| Variável | Configuração |
+| --- | --- |
+| `POSTGRES_DB` / `POSTGRES_USER` | Nome do banco e usuário local |
+| `POSTGRES_PASSWORD` | Senha do banco; substitua o valor de exemplo |
+| `CPF_HASH_SECRET` | Segredo aleatório e estável usado para gerar o HMAC dos CPFs; substitua o exemplo |
+| `GEOAPIFY_API_KEY` | Chave do Geoapify para a busca por endereço; deixe vazia se não utilizar a busca |
+| `VALHALLA_TILE_URL` | URL do arquivo OSM PBF; o padrão é o recorte Nordeste da Geofabrik |
+| `VITE_MAP_STYLE_URL` | Estilo cartográfico; o padrão é Liberty do OpenFreeMap |
+| `VITE_API_URL` | URL da API acessível pelo navegador; localmente, `http://localhost:3000` |
+| `WEB_ORIGIN` | Origem permitida da interface; localmente, `http://localhost:9000` |
+| `NODE_ENV` | Mantenha `development` para este ambiente local |
 
-## Limites desta prova
+O Compose monta `DATABASE_URL` com as variáveis `POSTGRES_*` e define `VALHALLA_URL` para a rede interna dos contêineres. Os valores dessas duas URLs presentes no `.env.example` usam os nomes internos `db` e `valhalla`.
 
-O cálculo principal usa os pontos salvos e sua sequência manual. A rota fixa da prova cartográfica permanece disponível em `/workspace/map-preview`. A aplicação requer conexão à internet para carregar o estilo cartográfico e consultar o Valhalla.
+Mantenha o `CPF_HASH_SECRET` estável: trocá-lo impede reconhecer os CPFs já cadastrados. Nunca coloque segredos em variáveis `VITE_*`, pois elas são expostas ao navegador.
 
-Antes da implantação, definir um provedor cartográfico com termos, disponibilidade e capacidade adequados ao uso esperado. OpenFreeMap na prova de conceito não representa compromisso de hospedagem ou nível de serviço de produção.
+### 2. Iniciar os serviços
 
-O Compose deste repositório é para desenvolvimento local, não para exposição pública. Consulte [docs/implantacao.md](docs/implantacao.md) para a configuração necessária de produção e os avisos conhecidos de segurança e tamanho do worker cartográfico.
+```bash
+docker compose up -d --build
+```
+
+A inicialização instala as dependências, gera o cliente Prisma e aplica as migrações automaticamente. O frontend e a API executam em modo de desenvolvimento, com os diretórios de código montados nos contêineres.
+
+Na primeira execução, o Valhalla baixa o arquivo PBF e constrói o grafo de roteamento. Essa preparação pode levar vários minutos; acompanhe os logs antes de tentar calcular rotas. Para usar um recorte menor, ajuste `VALHALLA_TILE_URL` antes da primeira inicialização.
+
+```bash
+docker compose ps
+docker compose logs -f api web valhalla
+```
+
+O healthcheck da API verifica PostgreSQL/PostGIS. Ele não indica que o Valhalla já terminou a preparação.
+
+### 3. Acessar a aplicação
+
+| Serviço | Endereço local |
+| --- | --- |
+| Interface | <http://localhost:9000> |
+| Cadastro | <http://localhost:9000/register> |
+| Login | <http://localhost:9000/login> |
+| API | <http://localhost:3000> |
+| Saúde da API e conexão com PostGIS | <http://localhost:3000/health> |
+| Valhalla | `http://localhost:8002` |
+| PostgreSQL | `localhost:5433` |
+
+O banco usa a porta `5433` na máquina para evitar conflito com instalações locais; entre os contêineres, utiliza `5432`.
+
+Após cadastrar uma conta e entrar:
+
+1. Crie um mapa na área de trabalho (`/workspace`) e abra seus detalhes.
+2. Use **Adicionar ponto** para incluir locais por clique ou utilize a busca por endereço e confirme a posição.
+3. Adicione pelo menos dois pontos dentro da cobertura do Valhalla e organize a sequência para visualizar a rota.
+4. Renomeie os pontos e marque as visitas conforme necessário.
+5. Em **Responsáveis**, conceda acesso pelo e-mail de outra conta cadastrada.
+6. Use **Minha localização** para acompanhar a posição do dispositivo e **Parar localização** para encerrar.
+
+A demonstração cartográfica permanece disponível, após login, em `/workspace/map-preview`.
+
+### Comandos úteis
+
+Execute na raiz do repositório, com os serviços iniciados para os comandos `exec`:
+
+```bash
+# Gerar o build da API
+docker compose exec api npm run build
+
+# Verificar tipos e gerar o build da interface
+docker compose exec web npm run build
+
+# Aplicar migrações manualmente, se necessário
+docker compose exec api npm run prisma:deploy
+
+# Encerrar os serviços preservando os volumes
+docker compose down
+```
+
+O banco persiste no volume `postgres_data` e os dados de roteamento em `valhalla_data`. Evite `docker compose down -v` se precisar manter esses dados: a opção `-v` remove os volumes.
+
+## Dados e limites atuais
+
+- Os pontos armazenam coordenadas, posição, nome opcional e estado de visita. Endereços pesquisados ou selecionados não são persistidos; o texto da busca é enviado ao Geoapify para obter sugestões.
+- A localização do dispositivo é temporária, permanece no navegador e não é enviada à API nem incluída como ponto da rota. O navegador solicita permissão e exige HTTPS, exceto em `localhost`.
+- A rota segue a ordem manual e utiliza o modo de carro do Valhalla. Com menos de dois pontos, não há trajeto; se o recálculo falhar, a geometria anterior é removida para evitar exibir uma rota desatualizada.
+- O uso requer conexão para a cartografia e acesso aos serviços necessários. Não há suporte offline nem navegação curva a curva dentro do Rota Fácil.
+- O cálculo depende da cobertura do grafo preparado no Valhalla. O recorte padrão inclui Vitória da Conquista e o entorno, além do restante do Nordeste.
+- Senhas são armazenadas como hash bcrypt, CPFs como HMAC-SHA-256 e tokens de sessão como SHA-256. A sessão expira em sete dias; o cadastro exige senha com pelo menos 12 caracteres e no máximo 72 bytes.
+- Verificação de e-mail, recuperação de senha e administração de contas ainda não foram implementadas.
+
+O Compose é voltado ao desenvolvimento local. A preparação para produção, incluindo HTTPS, segredos, backups, limites de requisições e pendências de dependências e desempenho, está descrita em [Preparação para implantação](docs/implantacao.md).
+
+MapLibre renderiza a cartografia; os dados são do OpenStreetMap, sob licença ODbL. Mantenha as atribuições visíveis e confira os termos dos provedores antes da publicação. A busca também exibe atribuição ao Geoapify.
+
+## Planos futuros
+
+O [plano de execução](plano-execucao-mvp-mapas-rotas.md) registra critérios de aceite e revisões. O MVP e a marcação de visitas estão aprovados. Busca por endereço, localização do dispositivo, renomeação de pontos e compartilhamento já foram implementados e aguardam revisão humana; a localização ainda precisa ser validada em um dispositivo real.
+
+### Próximas prioridades
+
+1. **Concluir a revisão do compartilhamento e das permissões:** validar a interface e o fluxo de concessão e revogação de acesso antes de avançar para notificações.
+2. **Notificar responsáveis:** avisar sobre atribuição de rotas e alterações relevantes. A integração com Evolution API, o uso de telefone, o consentimento e as preferências de notificação ainda serão avaliados.
+3. **Abrir navegação no Google Maps:** oferecer um botão por ponto para iniciar a navegação veicular até o destino, preservando a sequência no Rota Fácil.
+
+### Evoluções em avaliação
+
+- **Agenda e turnos:** configurar jornada, almoço e pausas por mapa, com uma base única para partida e retorno de cada turno, incluindo retorno à base no almoço.
+- **Atendimentos:** definir duração padrão e por ponto, janelas de atendimento, notas e categorias, comparando tempos previstos e reais.
+- **Estimativas:** exibir distância e tempo por trecho e total, horários de chegada e conclusão e distribuição das visitas entre turnos ou dias.
+- **Otimização opcional:** propor uma sequência que considere base, turnos, pausas, janelas e duração dos atendimentos, com revisão antes de aplicar.
+- **Acompanhamento da execução:** indicar próximo ponto, pontos restantes, caminho percorrido e duração real dos atendimentos.
+- **Exportação:** disponibilizar rotas em outros formatos ou plataformas.
+- **Uso offline:** avaliar regiões em PMTiles, armazenamento no dispositivo e sincronização com resolução de conflitos, após estabilizar agenda, execução e permissões.
+
+Essas evoluções não fazem parte das funcionalidades disponíveis hoje. O plano prevê revisão humana de cada entrega antes do avanço para a próxima etapa.
