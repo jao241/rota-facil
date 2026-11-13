@@ -1,0 +1,1 @@
+ALTER TABLE "MapPoint" ADD COLUMN "name" VARCHAR(80);

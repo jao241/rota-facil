@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+apps/*/node_modules/
+apps/*/dist/
+data/valhalla/
+npm-debug.log*
